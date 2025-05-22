@@ -1,4 +1,7 @@
 <?php
+// 引入安全工具类
+require_once 'security_utils.php';
+
 session_start();
 
 header('Content-Type: text/event-stream');
@@ -22,17 +25,30 @@ if (!isset($input['messages']) || empty($input['messages'])) {
     exit;
 }
 
-// 获取会话ID
-$session_id = isset($input['session_id']) ? $input['session_id'] : null;
+// 安全处理消息内容
+if (is_array($input['messages'])) {
+    foreach ($input['messages'] as &$message) {
+        if (isset($message['content']) && is_string($message['content'])) {
+            // 使用安全工具类过滤可能的恶意内容
+            $message['content'] = SecurityUtils::sanitizeHtml($message['content']);
+        }
+    }
+    unset($message); // 解除引用
+}
+
+// 获取会话ID并验证格式
+$session_id = isset($input['session_id']) ? SecurityUtils::filterAlphanumeric($input['session_id']) : null;
 if (!$session_id || !isset($_SESSION['ai_session']) || $_SESSION['ai_session']['id'] !== $session_id) {
     echo "data: " . json_encode(['error' => 'Invalid session']) . "\n\n";
     exit;
 }
 
-// 设置API参数
-//$model = isset($input['model']) ? $input['model'] : 'deepseek-chat';
-$model = isset($input['model']) ? $input['model'] : 'deepseek-reasoner';
-$stream = isset($input['stream']) ? $input['stream'] : true;
+// 设置API参数并验证
+$allowed_models = ['deepseek-chat', 'deepseek-reasoner'];
+$model_input = isset($input['model']) ? trim($input['model']) : 'deepseek-reasoner';
+// 验证模型名称是否在允许列表中
+$model = in_array($model_input, $allowed_models) ? $model_input : 'deepseek-reasoner';
+$stream = isset($input['stream']) && is_bool($input['stream']) ? $input['stream'] : true;
 
 // 准备API请求数据
 $apiData = [
@@ -59,7 +75,7 @@ foreach ($apiKeys as $apiKey) {
         'Content-Type: application/json',
         'Authorization: Bearer ' . $apiKey
     ]);
-    
+
     // 如果是流式输出
     if ($stream) {
         curl_setopt($ch, CURLOPT_WRITEFUNCTION, function($curl, $data) {
@@ -70,7 +86,7 @@ foreach ($apiKeys as $apiKey) {
         $result = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-        
+
         // 如果成功，结束循环
         if ($httpCode >= 200 && $httpCode < 300) {
             echo "data: [DONE]\n\n";
@@ -80,7 +96,7 @@ foreach ($apiKeys as $apiKey) {
         $result = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
-        
+
         if ($httpCode >= 200 && $httpCode < 300) {
             echo "data: " . $result . "\n\n";
             echo "data: [DONE]\n\n";

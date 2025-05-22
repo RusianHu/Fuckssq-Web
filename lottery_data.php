@@ -1,4 +1,7 @@
 <?php
+// 引入安全工具类
+require_once 'security_utils.php';
+
 header('Content-Type: application/json');
 
 // 设置错误处理
@@ -7,22 +10,37 @@ function returnError($message) {
     exit;
 }
 
-// 获取参数
-$count = isset($_GET['count']) ? intval($_GET['count']) : 100;
-$start_period = isset($_GET['start_period']) ? trim($_GET['start_period']) : '';
-$end_period = isset($_GET['end_period']) ? trim($_GET['end_period']) : '';
+// 获取参数并进行安全处理
+$count = SecurityUtils::filterInteger(
+    isset($_GET['count']) ? $_GET['count'] : 100,
+    1,  // 最小值
+    1000,  // 最大值
+    100  // 默认值
+);
+
+// 使用安全工具类过滤期号（只允许数字）
+$start_period = isset($_GET['start_period']) ? SecurityUtils::filterAlphanumeric(trim($_GET['start_period'])) : '';
+$end_period = isset($_GET['end_period']) ? SecurityUtils::filterAlphanumeric(trim($_GET['end_period'])) : '';
 
 // 验证参数
 if ($count <= 0 || $count > 1000) {
     returnError('期数参数无效，应在1-1000之间');
 }
 
-// 构建抓取URL
-$url = "https://datachart.500.com/ssq/history/newinc/history.php?limit=$count&sort=0";
+// 验证期号格式
+if ((!empty($start_period) && !preg_match('/^\d+$/', $start_period)) ||
+    (!empty($end_period) && !preg_match('/^\d+$/', $end_period))) {
+    returnError('期号格式无效，只能包含数字');
+}
+
+// 构建抓取URL - 使用安全工具类处理URL参数
+$url = "https://datachart.500.com/ssq/history/newinc/history.php?limit=" .
+       SecurityUtils::filterUrlParam($count) . "&sort=0";
 
 // 如果提供了期号范围，则添加
 if (!empty($start_period) && !empty($end_period)) {
-    $url .= "&start=$start_period&end=$end_period";
+    $url .= "&start=" . SecurityUtils::filterUrlParam($start_period) .
+            "&end=" . SecurityUtils::filterUrlParam($end_period);
 }
 
 // 获取网页内容
